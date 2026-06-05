@@ -1,0 +1,58 @@
+const express = require("express");
+const http = require("http");
+const { Server } = require("socket.io");
+const cors = require("cors");
+
+const app = express();
+app.use(cors());
+app.use(express.json());
+
+const server = http.createServer(app);
+const io = new Server(server, {
+  cors: { origin: "*", methods: ["GET", "POST"] },
+});
+
+const users = new Map();
+
+app.get("/", (req, res) => res.json({ status: "Halo signaling server running ✅" }));
+
+io.on("connection", (socket) => {
+  socket.on("register", ({ userId, name }) => {
+    users.set(socket.id, { userId, name });
+    socket.join(userId);
+    io.emit("user-online", { userId, name });
+  });
+
+  socket.on("call-user", ({ to, offer, callType, callerName }) => {
+    io.to(to).emit("incoming-call", { from: users.get(socket.id)?.userId, callerName, offer, callType });
+  });
+
+  socket.on("answer-call", ({ to, answer }) => {
+    io.to(to).emit("call-answered", { answer });
+  });
+
+  socket.on("reject-call", ({ to }) => {
+    io.to(to).emit("call-rejected");
+  });
+
+  socket.on("ice-candidate", ({ to, candidate }) => {
+    io.to(to).emit("ice-candidate", { candidate });
+  });
+
+  socket.on("end-call", ({ to }) => {
+    io.to(to).emit("call-ended");
+  });
+
+  socket.on("send-message", ({ to, message, from, fromName, timestamp }) => {
+    io.to(to).emit("receive-message", { message, from, fromName, timestamp });
+  });
+
+  socket.on("disconnect", () => {
+    const user = users.get(socket.id);
+    if (user) io.emit("user-offline", { userId: user.userId });
+    users.delete(socket.id);
+  });
+});
+
+const PORT = process.env.PORT || 3001;
+server.listen(PORT, () => console.log(`🚀 Halo server running on port ${PORT}`));
